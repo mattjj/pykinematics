@@ -7,6 +7,7 @@ from matplotlib.artist import Artist
 import ik
 from util import flatten1
 
+# TODO make this an FK thing, not a tree node thing
 class JointTreeNodeViz(ik.JointTreeNode):
     def lineplot_xys(self):
         def interleave(item,lst):
@@ -23,7 +24,6 @@ class InteractiveIK(object):
         self.ax = ax
         self.canvas = canvas = fig.canvas
 
-        self.tree = tree
         self.solver = ik.construct_solver(ik.JointTreeFK(tree),dampening_factors=1.,tol=1e-2,maxiter=100)
         self.effectors = np.array(tree.get_effectors())
         self.line = Line2D(*zip(*tree.lineplot_xys()), marker='o', markerfacecolor='b',animated=True)
@@ -87,14 +87,14 @@ if __name__ == '__main__':
     ax = plt.subplot(111)
 
     ### 3 joints
-    a = JointTreeNodeViz(idx=0,E=ik.RotorJoint2D(1.5),
-            children=[JointTreeNodeViz(idx=1,E=ik.RotorJoint2D(1.),
-                children=[JointTreeNodeViz(idx=2,E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
+    a = JointTreeNodeViz(E=ik.RotorJoint2D(1.5),
+            children=[JointTreeNodeViz(E=ik.RotorJoint2D(1.),
+                children=[JointTreeNodeViz(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
             ])
     a.set(np.array([np.pi/4,np.pi/4,np.pi/4]))
 
     ### 2 joints
-    # a = JointTreeNodeViz(idx=0,E=ik.RotorJoint2D(1.5),children=[JointTreeNodeViz(idx=1,E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
+    # a = JointTreeNodeViz(E=ik.RotorJoint2D(1.5),children=[JointTreeNodeViz(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
     # a.set(np.array([np.pi/4,np.pi/4]))
 
     v = InteractiveIK(fig,ax,a)

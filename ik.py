@@ -1,8 +1,8 @@
 from __future__ import division
 import numpy as np
-import abc
+import abc, itertools
 
-from util import rot2D, rot3D_YawPitchRoll, solve_psd, flatten1
+from util import rot2D, rot3D_YawPitchRoll, solve_psd, flatten1, rle
 
 #######################
 #  Geometric Algebra  #
@@ -31,7 +31,7 @@ class AffineElement(GeneralLinearElement):
         self.set_matrices(A,b)
 
     def set_matrices(self,A,b):
-        self.ndim = n = b.shape[0]
+        n = b.shape[0]
         self._mat = np.zeros((n+1,n+1))
         self._mat[:-1,:-1] = A
         self._mat[:-1,-1] = b
@@ -63,7 +63,7 @@ class SpecialEuclideanTangentElement(GeneralLinearElement):
         self.set_matrices(skew_symmetric_matrix,inftranslation)
 
     def set_matrices(self,skew_symmetric_matrix,inftranslation):
-        self.ndim = n = inftranslation.shape[0]
+        n = inftranslation.shape[0]
         self._mat = np.zeros((n+1,n+1))
         self._mat[:-1,:-1] = skew_symmetric_matrix
         self._mat[:-1,-1] = inftranslation
@@ -91,6 +91,10 @@ class RotorJoint2D(ChartedSpecialEuclideanElement):
     models a rotor joint in 2D with fixed length (as an element of a charted
     submanifold of E+(2))
     '''
+
+    numcoordinates = 2
+    ndim = 2
+
     tangent_basis = [SpecialEuclideanTangentElement(
         skew_symmetric_matrix=np.array(( (0.,-1.), (1.,0.) )),
         inftranslation=np.zeros(2))]
@@ -113,6 +117,9 @@ class RotorJoint3DYawPitchRoll(ChartedSpecialEuclideanElement):
     models a rotor joint in 3D with fixed length (as an element of a charted
     submanifold of E+(3)) using the Yaw-Pitch-Roll chart
     '''
+
+    numcoordinates = 3
+    ndim = 3
 
     tangent_basis = [SpecialEuclideanTangentElement(skew_symmetric_matrix=m,
                                       inftranslation=np.zeros(3)) \
@@ -156,45 +163,62 @@ class ForwardKinematics(object):
 
 
 class JointTreeNode(object):
-    def __init__(self,idx,E,effectors=[],children=[]):
-        self.idx = idx # TODO indices should be internal,right?
+    def __init__(self,E,effectors=[],children=[]):
         self.E = E
         self.effectors = effectors
         self.children = children
 
-    def set(self,coordinates):
-        self.coordinates = coordinates
-        self.E.set_from_chart(coordinates[self.idx])
-        for c in self.children:
-            c.set(coordinates)
-
-    def get_effectors(self):
-        return map(self.E.apply,
-                self.effectors + flatten1([c.get_effectors() for c in self.children]))
-
-    def get_derivatives(self):
-        # TODO TODO totally busted for more effectors! need some tree to matrix
-        # business!
-        effectors, derivs = map(flatten1,zip(*[c.get_derivatives() for c in self.children])) \
-                if len(self.children) > 0 else ([], [])
-        effectors = map(self.E.apply, self.effectors + effectors)
-        derivs = [d.apply(e) for e in effectors for d in self.E.tangent_basis_at_identity()] \
-                + map(self.E.apply_to_tangentvec,derivs)
-        return effectors, derivs
-
 
 class JointTreeFK(ForwardKinematics):
-    def __init__(self,tree):
-        self.tree = tree
+    # nodes are indexed by left-to-right depth-first search preorder
+    def __init__(self,root):
+        self.root = root
+        self.ndim = self.root.E.ndim
+        self.coordinate_nums = []
+
+        node_idx, eff_idx = itertools.count(), itertools.count()
+        self._set_indices(root,node_idx,eff_idx)
+        self.num_nodes, self.num_effectors = node_idx.next(), eff_idx.next()
+
+        self.eslices = [slice(i*self.ndim,(i+1)*self.ndim) for i in range(self.num_effectors)]
+        self.cslices = [slice(i,i+n) for i,n in zip(*rle(self.coordinate_nums))]
 
     def __call__(self,coordinates):
-        self.tree.set(coordinates)
-        return np.asarray(self.tree.get_effectors()).ravel()
+        self._set_coordinates(coordinates,self.root)
+        return np.asarray(self._get_effectors(self.root))
 
     def deriv(self,coordinates):
-        self.tree.set(coordinates)
-        effectors, derivs = self.tree.get_derivatives()
-        return np.asarray(derivs).T
+        self._set_coordinates(coordinates,self.root)
+        J = np.zeros((self.num_effectors*self.ndim, coordinates.shape[0]))
+        for (effidx,jointidx), d in self._get_derivatives(self.root)[1]:
+            J[self.eslices[effidx],self.cslices[jointix]] = d.flat
+        return J
+
+    def _set_indices(self,node,node_indexer,effector_indexer):
+        node.idx = node_indexer.next()
+        node.effector_indices = [effector_indexer.next() for e in node.effectors]
+        self.coordinate_nums.append(node.E.numcoordinates)
+        for c in node.children:
+            self._set_indices(c,node_indexer,effector_indexer)
+
+    def _set_coordinates(self,coordinates,node):
+        node.E.set_from_chart(coordinates[node.idx])
+        for c in node.children:
+            self._set_coordinates(coordinates,c)
+
+    def _get_effectors(self,node):
+            return map(node.E.apply, node.effectors + flatten1([self._get_effectors(c) for c in node.children]))
+
+    def _get_derivatives(self,node):
+        effectors, derivs = map(flatten1,zip(*[self._get_derivatives(c) for c in node.children])) \
+                if len(node.children) > 0 else ([], [])
+        effectors = [(effidx, node.E.apply(eff)) for effidx, eff in \
+                itertools.chain(effectors,zip(*(node.effector_indices,node.effectors)))]
+        derivs = [((jointidx,effidx), [node.E.apply_to_tangentvec(d) for d in deriv])
+                        for (jointidx, effidx), deriv in derivs] \
+                + [((node.idx,effidx), np.asarray([d.apply(eff) for d in node.E.tangent_basis_at_identity()]))
+                        for effidx, eff in effectors] # TODO need to decide type of d
+        return effectors, derivs
 
 ### special cases
 
