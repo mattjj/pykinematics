@@ -49,6 +49,7 @@ class InteractiveIK(object):
         canvas.mpl_connect('motion_notify_event', self.motion_notify_callback)
 
     def line_changed(self, line):
+        # TODO circle stuff here?
         vis = self.line.get_visible()
         Artist.update_from(self.line, line)
         self.line.set_visible(vis)
@@ -88,6 +89,7 @@ class InteractiveIK(object):
         self.canvas.blit(self.ax.bbox)
 
     def _get_ind_under_point(self, event):
+        # TODO can get the circle index instead
         xyt = self.line.get_transform().transform(self.targets)
         xt, yt = xyt[:, 0], xyt[:, 1]
         d = np.sqrt((xt-event.x)**2 + (yt-event.y)**2)
