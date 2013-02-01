@@ -8,25 +8,31 @@ import ik
 from util import flatten1
 
 # TODO make this an FK thing, not a tree node thing
-class JointTreeNodeViz(ik.JointTreeNode):
+class JointTreeFKViz(ik.JointTreeFK):
     def lineplot_xys(self):
-        def interleave(item,lst):
-            return [v for l in lst for v in (l,item)]
+        return self._lineplot_xys(self.root)
 
-        n = self.E.ndim
-        return [np.zeros(n)] + interleave(np.zeros(n),map(self.E.apply,self.effectors)) \
-                + flatten1(interleave([np.zeros(n)], [map(self.E.apply,c.lineplot_xys()) for c in self.children]))
+    def _lineplot_xys(self,node):
+        n = node.E.ndim
+        return [np.zeros(n)] + self._interleave(np.zeros(n),map(node.E.apply,node.effectors)) \
+                + flatten1(self._interleave([np.zeros(n)],
+                    [map(node.E.apply,self._lineplot_xys(c)) for c in node.children]))
+
+    def _interleave(self,item,lst):
+        return [v for l in lst for v in (l,item)]
+
 
 class InteractiveIK(object):
     epsilon = 5.
 
-    def __init__(self, fig, ax, tree):
+    def __init__(self, fig, ax, treeroot, initial_coordinates):
         self.ax = ax
         self.canvas = canvas = fig.canvas
 
-        self.solver = ik.construct_solver(ik.JointTreeFK(tree),dampening_factors=1.,tol=1e-2,maxiter=100)
-        self.effectors = np.array(tree.get_effectors())
-        self.line = Line2D(*zip(*tree.lineplot_xys()), marker='o', markerfacecolor='b',animated=True)
+        self.tree = JointTreeFKViz(treeroot)
+        self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=100)
+        self.effectors = self.tree(initial_coordinates)
+        self.line = Line2D(*zip(*self.tree.lineplot_xys()), marker='o', markerfacecolor='b',animated=True)
         self.ax.add_line(self.line)
 
         self._ind = None # the effector being dragged
@@ -63,7 +69,7 @@ class InteractiveIK(object):
         x,y = event.xdata, event.ydata
 
         self.effectors[self._ind] = event.xdata, event.ydata
-        self.tree.set(self.solver(self.effectors.ravel(), self.tree.coordinates))
+        self.tree(self.solver(self.effectors, self.tree.coordinates))
         self.line.set_data(*zip(*self.tree.lineplot_xys()))
 
         self.canvas.restore_region(self.background)
@@ -87,17 +93,12 @@ if __name__ == '__main__':
     ax = plt.subplot(111)
 
     ### 3 joints
-    a = JointTreeNodeViz(E=ik.RotorJoint2D(1.5),
-            children=[JointTreeNodeViz(E=ik.RotorJoint2D(1.),
-                children=[JointTreeNodeViz(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
+    treeroot = ik.JointTreeNode(E=ik.RotorJoint2D(1.5),
+            children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),
+                children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
             ])
-    a.set(np.array([np.pi/4,np.pi/4,np.pi/4]))
 
-    ### 2 joints
-    # a = JointTreeNodeViz(E=ik.RotorJoint2D(1.5),children=[JointTreeNodeViz(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
-    # a.set(np.array([np.pi/4,np.pi/4]))
-
-    v = InteractiveIK(fig,ax,a)
+    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4]))
 
     ax.set_xlim((-3,3))
     ax.set_ylim((-3,3))

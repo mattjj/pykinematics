@@ -162,6 +162,10 @@ class ForwardKinematics(object):
         pass
 
 
+class JointChainFK(ForwardKinematics):
+    pass # TODO
+
+
 class JointTreeNode(object):
     def __init__(self,E,effectors=[],children=[]):
         self.E = E
@@ -181,18 +185,19 @@ class JointTreeFK(ForwardKinematics):
         self.num_nodes, self.num_effectors = node_idx.next(), eff_idx.next()
 
         self.eslices = [slice(i*self.ndim,(i+1)*self.ndim) for i in range(self.num_effectors)]
-        self.cslices = [slice(i,i+n) for i,n in zip(*rle(self.coordinate_nums))]
+        self.cslices = [slice(i,i+n) for i,n in enumerate(self.coordinate_nums)]
 
     def __call__(self,coordinates):
+        self.coordinates = coordinates
         self._set_coordinates(coordinates,self.root)
         return np.asarray(self._get_effectors(self.root))
 
     def deriv(self,coordinates):
         self._set_coordinates(coordinates,self.root)
         J = np.zeros((self.num_effectors*self.ndim, coordinates.shape[0]))
-        for (effidx,jointidx), d in self._get_derivatives(self.root)[1]:
-            J[self.eslices[effidx],self.cslices[jointix]] = d.flat
-        return J
+        for (jointidx,effidx), d in self._get_derivatives(self.root)[1]:
+            J[self.eslices[effidx],self.cslices[jointidx]] = np.array(d).T
+        return J.reshape((-1,coordinates.shape[0]))
 
     def _set_indices(self,node,node_indexer,effector_indexer):
         node.idx = node_indexer.next()
@@ -207,26 +212,20 @@ class JointTreeFK(ForwardKinematics):
             self._set_coordinates(coordinates,c)
 
     def _get_effectors(self,node):
-            return map(node.E.apply, node.effectors + flatten1([self._get_effectors(c) for c in node.children]))
+        return map(node.E.apply, node.effectors
+                + flatten1([self._get_effectors(c) for c in node.children]))
 
     def _get_derivatives(self,node):
+        # TODO i don't like this function at all
         effectors, derivs = map(flatten1,zip(*[self._get_derivatives(c) for c in node.children])) \
                 if len(node.children) > 0 else ([], [])
         effectors = [(effidx, node.E.apply(eff)) for effidx, eff in \
                 itertools.chain(effectors,zip(*(node.effector_indices,node.effectors)))]
         derivs = [((jointidx,effidx), [node.E.apply_to_tangentvec(d) for d in deriv])
                         for (jointidx, effidx), deriv in derivs] \
-                + [((node.idx,effidx), np.asarray([d.apply(eff) for d in node.E.tangent_basis_at_identity()]))
-                        for effidx, eff in effectors] # TODO need to decide type of d
+                  + [((node.idx,effidx), [d.apply(eff) for d in node.E.tangent_basis_at_identity()])
+                        for effidx, eff in effectors]
         return effectors, derivs
-
-### special cases
-
-class JointChain2DFK(ForwardKinematics):
-    pass # TODO
-
-class JointChain3DFK(ForwardKinematics):
-    pass # TODO
 
 ########
 #  IK  #
@@ -240,7 +239,7 @@ def construct_solver(s,dampening_factors,tol=1e-2,maxiter=2000):
 
             JJT = J.dot(J.T)
             JJT.flat[::JJT.shape[0]+1] += dampening_factors
-            theta += J.T.dot(solve_psd(JJT,t-s(theta),overwrite_b=True))
+            theta += J.T.dot(solve_psd(JJT,(t-s(theta)).ravel(),overwrite_b=True))
 
             if np.linalg.norm(s(theta) - t) < tol:
                 return theta
