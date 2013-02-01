@@ -14,9 +14,3 @@ def solve_psd(A,b,overwrite_b=False):
 def flatten1(lol):
     return reduce(list.__iadd__,lol,[])
 
-def rle(stateseq):
-    pos, = np.where(np.diff(stateseq) != 0)
-    pos = np.concatenate(([0],pos+1,[len(stateseq)]))
-    return np.atleast_1d(stateseq[pos[:-1]]), np.diff(pos)
-
-

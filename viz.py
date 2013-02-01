@@ -3,11 +3,11 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.artist import Artist
+from matplotlib.patches import Circle
 
 import ik
 from util import flatten1
 
-# TODO make this an FK thing, not a tree node thing
 class JointTreeFKViz(ik.JointTreeFK):
     def lineplot_xys(self):
         return self._lineplot_xys(self.root)
@@ -23,7 +23,7 @@ class JointTreeFKViz(ik.JointTreeFK):
 
 
 class InteractiveIK(object):
-    epsilon = 5.
+    epsilon = 5. # pixel units
 
     def __init__(self, fig, ax, treeroot, initial_coordinates):
         self.ax = ax
@@ -31,11 +31,16 @@ class InteractiveIK(object):
 
         self.tree = JointTreeFKViz(treeroot)
         self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=100)
-        self.effectors = self.tree(initial_coordinates)
+
+        self.targets = self.tree(initial_coordinates)
+        self.circles = [Circle(t, radius=0.1, facecolor='r', alpha=0.5) for t in self.targets]
+        for c in self.circles:
+            self.ax.add_patch(c)
+
         self.line = Line2D(*zip(*self.tree.lineplot_xys()), marker='o', markerfacecolor='b',animated=True)
         self.ax.add_line(self.line)
 
-        self._ind = None # the effector being dragged
+        self._ind = None # the target being dragged
 
         self.line.add_callback(self.line_changed)
         canvas.mpl_connect('draw_event', self.draw_callback)
@@ -46,11 +51,13 @@ class InteractiveIK(object):
     def line_changed(self, line):
         vis = self.line.get_visible()
         Artist.update_from(self.line, line)
-        self.line.set_visible(vis)  # don't use the poly visibility state
+        self.line.set_visible(vis)
 
     def draw_callback(self, event):
         self.background = self.canvas.copy_from_bbox(self.ax.bbox)
         self.ax.draw_artist(self.line)
+        for c in self.circles:
+            self.ax.draw_artist(c)
         self.canvas.blit(self.ax.bbox)
 
     def button_press_callback(self, event):
@@ -68,16 +75,20 @@ class InteractiveIK(object):
         if event.button != 1: return
         x,y = event.xdata, event.ydata
 
-        self.effectors[self._ind] = event.xdata, event.ydata
-        self.tree(self.solver(self.effectors, self.tree.coordinates))
+        self.targets[self._ind] = x,y
+        self.circles[self._ind].center = x,y
+
+        self.tree(self.solver(self.targets, self.tree.coordinates))
         self.line.set_data(*zip(*self.tree.lineplot_xys()))
 
         self.canvas.restore_region(self.background)
         self.ax.draw_artist(self.line)
+        for c in self.circles:
+            self.ax.draw_artist(c)
         self.canvas.blit(self.ax.bbox)
 
     def _get_ind_under_point(self, event):
-        xyt = self.line.get_transform().transform(self.effectors)
+        xyt = self.line.get_transform().transform(self.targets)
         xt, yt = xyt[:, 0], xyt[:, 1]
         d = np.sqrt((xt-event.x)**2 + (yt-event.y)**2)
         indseq = np.nonzero(np.equal(d, np.amin(d)))[0]
@@ -88,11 +99,16 @@ class InteractiveIK(object):
 
         return ind
 
-if __name__ == '__main__':
+
+##############
+#  examples  #
+##############
+
+
+def chain_example():
     fig = plt.figure()
     ax = plt.subplot(111)
 
-    ### 3 joints
     treeroot = ik.JointTreeNode(E=ik.RotorJoint2D(1.5),
             children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),
                 children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
@@ -100,8 +116,32 @@ if __name__ == '__main__':
 
     v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4]))
 
-    ax.set_xlim((-3,3))
-    ax.set_ylim((-3,3))
+    ax.set_xlim((-4,4))
+    ax.set_ylim((-4,4))
+
+    return v
+
+def tree_example():
+    fig = plt.figure()
+    ax = plt.subplot(111)
+
+    treeroot = ik.JointTreeNode(E=ik.RotorJoint2D(1.5),
+            children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),
+                children=[
+                    ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)]),
+                    ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])
+                    ])
+            ])
+
+    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4,0.]))
+
+    ax.set_xlim((-4,4))
+    ax.set_ylim((-4,4))
+
+    return v
+
+if __name__ == '__main__':
+    v = tree_example()
     plt.show()
 
 # TODO show target

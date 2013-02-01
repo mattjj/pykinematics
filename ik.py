@@ -2,7 +2,7 @@ from __future__ import division
 import numpy as np
 import abc, itertools
 
-from util import rot2D, rot3D_YawPitchRoll, solve_psd, flatten1, rle
+from util import rot2D, rot3D_YawPitchRoll, solve_psd, flatten1
 
 #######################
 #  Geometric Algebra  #
@@ -84,7 +84,7 @@ class ChartedSpecialEuclideanElement(SpecialEuclideanElement):
     def tangent_basis_at_identity(self):
         pass
 
-# here are some concrete charted maps
+# here are some concrete charts
 
 class RotorJoint2D(ChartedSpecialEuclideanElement):
     '''
@@ -92,7 +92,7 @@ class RotorJoint2D(ChartedSpecialEuclideanElement):
     submanifold of E+(2))
     '''
 
-    numcoordinates = 2
+    numcoordinates = 1
     ndim = 2
 
     tangent_basis = [SpecialEuclideanTangentElement(
@@ -161,17 +161,18 @@ class ForwardKinematics(object):
     def deriv(self,coordinates):
         pass
 
+### FK chains are nice
 
 class JointChainFK(ForwardKinematics):
     pass # TODO
 
+### FK trees are hard! or maybe this can be improved...
 
 class JointTreeNode(object):
     def __init__(self,E,effectors=[],children=[]):
         self.E = E
         self.effectors = effectors
         self.children = children
-
 
 class JointTreeFK(ForwardKinematics):
     # nodes are indexed by left-to-right depth-first search preorder
@@ -182,10 +183,7 @@ class JointTreeFK(ForwardKinematics):
 
         node_idx, eff_idx = itertools.count(), itertools.count()
         self._set_indices(root,node_idx,eff_idx)
-        self.num_nodes, self.num_effectors = node_idx.next(), eff_idx.next()
-
-        self.eslices = [slice(i*self.ndim,(i+1)*self.ndim) for i in range(self.num_effectors)]
-        self.cslices = [slice(i,i+n) for i,n in enumerate(self.coordinate_nums)]
+        self.num_joints, self.num_effectors = node_idx.next(), eff_idx.next()
 
     def __call__(self,coordinates):
         self.coordinates = coordinates
@@ -194,10 +192,10 @@ class JointTreeFK(ForwardKinematics):
 
     def deriv(self,coordinates):
         self._set_coordinates(coordinates,self.root)
-        J = np.zeros((self.num_effectors*self.ndim, coordinates.shape[0]))
+        J = np.zeros((self.num_effectors, self.ndim, max(self.coordinate_nums), self.num_joints))
         for (jointidx,effidx), d in self._get_derivatives(self.root)[1]:
-            J[self.eslices[effidx],self.cslices[jointidx]] = np.array(d).T
-        return J.reshape((-1,coordinates.shape[0]))
+            J[effidx,:,:len(d),jointidx] = np.array(d).T
+        return J
 
     def _set_indices(self,node,node_indexer,effector_indexer):
         node.idx = node_indexer.next()
@@ -216,7 +214,6 @@ class JointTreeFK(ForwardKinematics):
                 + flatten1([self._get_effectors(c) for c in node.children]))
 
     def _get_derivatives(self,node):
-        # TODO i don't like this function at all
         effectors, derivs = map(flatten1,zip(*[self._get_derivatives(c) for c in node.children])) \
                 if len(node.children) > 0 else ([], [])
         effectors = [(effidx, node.E.apply(eff)) for effidx, eff in \
@@ -235,14 +232,14 @@ def construct_solver(s,dampening_factors,tol=1e-2,maxiter=2000):
     def solver(t,theta_init):
         theta = np.array(theta_init,copy=True)
         for itr in range(maxiter):
-            J = s.deriv(theta)
-
+            J = s.deriv(theta).reshape((-1,theta.size))
             JJT = J.dot(J.T)
             JJT.flat[::JJT.shape[0]+1] += dampening_factors
-            theta += J.T.dot(solve_psd(JJT,(t-s(theta)).ravel(),overwrite_b=True))
-
+            theta.flat += J.T.dot(solve_psd(JJT,(t-s(theta)).ravel(),overwrite_b=True))
             if np.linalg.norm(s(theta) - t) < tol:
                 return theta
         return theta
     return solver
+
+# TODO test 3D
 
