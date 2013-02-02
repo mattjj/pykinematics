@@ -11,7 +11,7 @@ from util import rot2D, rot3D_YawPitchRoll, solve_psd, flatten1
 
 class GeneralLinearElement(object):
     '''
-    models an element of GL(n+1) with a slightly unusual action on R^n
+    models an element of GL(n+1)
     '''
     def __init__(self,A):
         self._mat = A
@@ -26,7 +26,8 @@ class GeneralLinearElement(object):
 
 class AffineElement(GeneralLinearElement):
     '''
-    models an element of the affine group (as a subgroup of GL(n+1))
+    models an element of the affine group (as a subgroup of GL(n+1)) with an
+    action on R^n defined in homogeneous coordinates
     A(x+b), NOT Ax+b !!!
     '''
     def __init__(self,A,b):
@@ -55,8 +56,9 @@ class SpecialEuclideanElement(AffineElement):
 
 class SpecialEuclideanLieAlgebraElement(GeneralLinearElement):
     '''
-    models an element of the tangent bundle of E+(n) as an element of GL(n+1).
+    models an element of the Lie algebra of E+(n) as an element of GL(n+1).
     the GL(n) part is skew-symmetric
+    by applying the action of the Lie group we get a section of the tangent bundle
     '''
     def __init__(self,skew_symmetric_matrix,inftranslation):
         self.set_matrices(skew_symmetric_matrix,inftranslation)
