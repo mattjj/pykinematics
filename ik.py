@@ -228,14 +228,14 @@ class JointTreeFK(ForwardKinematics):
 #  IK  #
 ########
 
-def construct_solver(s,dampening_factors,tol=1e-2,maxiter=2000):
+def construct_solver(s,dampening_factors,tol=1e-2,maxiter=2000,limits=(-np.inf,np.inf)):
     def solver(t,theta_init):
         theta = np.array(theta_init,copy=True)
         for itr in range(maxiter):
             J = s.deriv(theta).reshape((-1,theta.size))
             JJT = J.dot(J.T)
             JJT.flat[::JJT.shape[0]+1] += dampening_factors
-            theta.flat += J.T.dot(solve_psd(JJT,(t-s(theta)).ravel(),overwrite_b=True))
+            theta.flat += J.T.dot(solve_psd(JJT,np.clip((t-s(theta)).ravel(),*limits),overwrite_b=True))
             if np.linalg.norm(s(theta) - t) < tol:
                 return theta
         return theta

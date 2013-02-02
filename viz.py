@@ -28,10 +28,9 @@ class InteractiveIK(object):
     def __init__(self, fig, ax, treeroot, initial_coordinates, limits=(-np.inf,np.inf)):
         self.ax = ax
         self.canvas = canvas = fig.canvas
-        self.limits = limits
 
         self.tree = JointTreeFKViz(treeroot)
-        self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=50)
+        self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=50,limits=limits)
 
         self.targets = self.tree(initial_coordinates)
         self.circles = [Circle(t, radius=0.1, facecolor='r', alpha=0.5, animated=True) for t in self.targets]
@@ -79,7 +78,7 @@ class InteractiveIK(object):
         self.targets[self._ind] = x,y
         self.circles[self._ind].center = x,y
 
-        self.tree(self.solver(np.clip(self.targets,*self.limits), self.tree.coordinates))
+        self.tree(self.solver(self.targets, self.tree.coordinates))
         self.line.set_data(*zip(*self.tree.lineplot_xys()))
 
         self.canvas.restore_region(self.background)
@@ -116,7 +115,7 @@ def chain_example():
                 children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
             ])
 
-    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4]),limits=(-4,4))
+    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4]),limits=(-2,2))
 
     ax.set_xlim((-4,4))
     ax.set_ylim((-4,4))
@@ -135,7 +134,7 @@ def tree_example():
                     ])
             ])
 
-    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4,0.]),limits=(-3,3))
+    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4,0.]),limits=(-2,2))
 
     ax.set_xlim((-4,4))
     ax.set_ylim((-4,4))
