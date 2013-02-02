@@ -10,12 +10,14 @@ from util import flatten1
 
 class JointTreeFKViz(ik.JointTreeFK):
     def lineplot_xys(self):
-        return self._lineplot_xys(self.root)
+        return np.asarray(self._lineplot_xys(self.root))[:,:-1]
 
     def _lineplot_xys(self,node):
         n = node.E.ndim
-        return [np.zeros(n)] + self._interleave(np.zeros(n),map(node.E.apply,node.effectors)) \
-                + flatten1(self._interleave([np.zeros(n)],
+        origin = np.zeros(n+1)
+        origin[-1] = 1
+        return [origin] + self._interleave(origin,map(node.E.apply,node.effectors)) \
+                + flatten1(self._interleave([origin],
                     [map(node.E.apply,self._lineplot_xys(c)) for c in node.children]))
 
     def _interleave(self,item,lst):
@@ -30,7 +32,7 @@ class InteractiveIK(object):
         self.canvas = canvas = fig.canvas
 
         self.tree = JointTreeFKViz(treeroot)
-        self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=50,limits=limits)
+        self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=30,limits=limits)
 
         self.targets = self.tree(initial_coordinates)
         self.circles = [Circle(t, radius=0.1, facecolor='r', alpha=0.5, animated=True) for t in self.targets]
@@ -111,7 +113,7 @@ def chain_example():
     ax = plt.subplot(111)
 
     treeroot = ik.JointTreeNode(E=ik.RotorJoint2D(1.5),
-            children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),
+            children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)],
                 children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
             ])
 
@@ -143,6 +145,7 @@ def tree_example():
 
 if __name__ == '__main__':
     v = tree_example()
+    # v =  chain_example()
     plt.show()
 
 # TODO show target

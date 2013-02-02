@@ -1,6 +1,7 @@
 from __future__ import division
 import numpy as np
 import abc, itertools
+from numpy.core.umath_tests import inner1d
 
 from util import rot2D, rot3D_YawPitchRoll, solve_psd, flatten1
 
@@ -20,12 +21,13 @@ class GeneralLinearElement(object):
         new.A = self._mat.dot(other._mat)
 
     def apply(self,vec):
-        return self._mat[:-1,:-1].dot(vec + self._mat[:-1,-1])
+        return self._mat.dot(vec)
 
 
 class AffineElement(GeneralLinearElement):
     '''
     models an element of the affine group (as a subgroup of GL(n+1))
+    A(x+b), NOT Ax+b !!!
     '''
     def __init__(self,A,b):
         self.set_matrices(A,b)
@@ -34,12 +36,9 @@ class AffineElement(GeneralLinearElement):
         n = b.shape[0]
         self._mat = np.zeros((n+1,n+1))
         self._mat[:-1,:-1] = A
-        self._mat[:-1,-1] = b
+        self._mat[:-1,-1] = A.dot(b)
         self._mat[-1,-1] = 1
         return self
-
-    def apply_to_tangentvec(self,vec):
-        return self._mat[:-1,:-1].dot(vec)
 
 
 class SpecialEuclideanElement(AffineElement):
@@ -54,7 +53,7 @@ class SpecialEuclideanElement(AffineElement):
         return super(SpecialEuclideanElement,self).set_matrices(A=rotation_matrix,b=translation)
 
 
-class SpecialEuclideanTangentElement(GeneralLinearElement):
+class SpecialEuclideanLieAlgebraElement(GeneralLinearElement):
     '''
     models an element of the tangent bundle of E+(n) as an element of GL(n+1).
     the GL(n) part is skew-symmetric
@@ -66,7 +65,7 @@ class SpecialEuclideanTangentElement(GeneralLinearElement):
         n = inftranslation.shape[0]
         self._mat = np.zeros((n+1,n+1))
         self._mat[:-1,:-1] = skew_symmetric_matrix
-        self._mat[:-1,-1] = inftranslation
+        self._mat[:-1,-1] = skew_symmetric_matrix.dot(inftranslation)
         return self
 
 # charts (parameterizations) let us specify transformations via angles and do
@@ -95,7 +94,7 @@ class RotorJoint2D(ChartedSpecialEuclideanElement):
     numcoordinates = 1
     ndim = 2
 
-    tangent_basis = [SpecialEuclideanTangentElement(
+    tangent_basis = [SpecialEuclideanLieAlgebraElement(
         skew_symmetric_matrix=np.array(( (0.,-1.), (1.,0.) )),
         inftranslation=np.zeros(2))]
 
@@ -121,7 +120,7 @@ class RotorJoint3DYawPitchRoll(ChartedSpecialEuclideanElement):
     numcoordinates = 3
     ndim = 3
 
-    tangent_basis = [SpecialEuclideanTangentElement(skew_symmetric_matrix=m,
+    tangent_basis = [SpecialEuclideanLieAlgebraElement(skew_symmetric_matrix=m,
                                       inftranslation=np.zeros(3)) \
                         for m in \
                             [np.array(( ( 0.,-1., 0.),
@@ -171,7 +170,7 @@ class JointChainFK(ForwardKinematics):
 class JointTreeNode(object):
     def __init__(self,E,effectors=[],children=[]):
         self.E = E
-        self.effectors = effectors
+        self.effectors = [np.concatenate((e,(1.,))) for e in effectors]
         self.children = children
 
 class JointTreeFK(ForwardKinematics):
@@ -188,13 +187,13 @@ class JointTreeFK(ForwardKinematics):
     def __call__(self,coordinates):
         self.coordinates = coordinates
         self._set_coordinates(coordinates,self.root)
-        return np.asarray(self._get_effectors(self.root))
+        return np.asarray(self._get_effectors(self.root))[:,:-1]
 
     def deriv(self,coordinates):
         self._set_coordinates(coordinates,self.root)
         J = np.zeros((self.num_effectors, self.ndim, max(self.coordinate_nums), self.num_joints))
         for (jointidx,effidx), d in self._get_derivatives(self.root)[1]:
-            J[effidx,:,:len(d),jointidx] = np.array(d).T
+            J[effidx,:,:len(d),jointidx] = np.asarray(d)[:,:-1].T
         return J
 
     def _set_indices(self,node,node_indexer,effector_indexer):
@@ -218,8 +217,7 @@ class JointTreeFK(ForwardKinematics):
                 if len(node.children) > 0 else ([], [])
         effectors = [(effidx, node.E.apply(eff)) for effidx, eff in \
                 itertools.chain(effectors,zip(*(node.effector_indices,node.effectors)))]
-        derivs = [((jointidx,effidx), [node.E.apply_to_tangentvec(d) for d in deriv])
-                        for (jointidx, effidx), deriv in derivs] \
+        derivs = [((jointidx,effidx), map(node.E.apply, deriv)) for (jointidx, effidx), deriv in derivs] \
                   + [((node.idx,effidx), [d.apply(eff) for d in node.E.tangent_basis_at_identity()])
                         for effidx, eff in effectors]
         return effectors, derivs
@@ -228,15 +226,17 @@ class JointTreeFK(ForwardKinematics):
 #  IK  #
 ########
 
-def construct_solver(s,dampening_factors,tol=1e-2,maxiter=2000,limits=(-np.inf,np.inf)):
+def construct_solver(s,dampening_factors,tol,maxiter,limits=(-np.inf,np.inf)):
     def solver(t,theta_init):
         theta = np.array(theta_init,copy=True)
+        e = np.clip(t-s(theta),*limits)
         for itr in range(maxiter):
             J = s.deriv(theta).reshape((-1,theta.size))
             JJT = J.dot(J.T)
             JJT.flat[::JJT.shape[0]+1] += dampening_factors
-            theta.flat += J.T.dot(solve_psd(JJT,np.clip((t-s(theta)).ravel(),*limits),overwrite_b=True))
-            if np.linalg.norm(s(theta) - t) < tol:
+            theta.flat += J.T.dot(solve_psd(JJT,e.ravel(),overwrite_b=True))
+            e = np.clip(t-s(theta),*limits,out=e)
+            if inner1d(e,e).max() < tol**2:
                 return theta
         return theta
     return solver
