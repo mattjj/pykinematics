@@ -56,8 +56,8 @@ class SpecialEuclideanElement(AffineElement):
 
 class SpecialEuclideanTangentElement(GeneralLinearElement):
     '''
-    models an element of the tangent bundle (Lie algebra) of E+(n)
-    an element of GL(n+1). the GL(n) part is skew-symmetric
+    models an element of the tangent bundle of E+(n) as an element of GL(n+1).
+    the GL(n) part is skew-symmetric
     '''
     def __init__(self,skew_symmetric_matrix,inftranslation):
         self.set_matrices(skew_symmetric_matrix,inftranslation)
