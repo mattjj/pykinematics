@@ -147,5 +147,3 @@ if __name__ == '__main__':
     v = tree_example()
     # v =  chain_example()
     plt.show()
-
-# TODO show target
