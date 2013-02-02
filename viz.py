@@ -25,19 +25,20 @@ class JointTreeFKViz(ik.JointTreeFK):
 class InteractiveIK(object):
     epsilon = 5. # pixel units
 
-    def __init__(self, fig, ax, treeroot, initial_coordinates):
+    def __init__(self, fig, ax, treeroot, initial_coordinates, limits=(-np.inf,np.inf)):
         self.ax = ax
         self.canvas = canvas = fig.canvas
+        self.limits = limits
 
         self.tree = JointTreeFKViz(treeroot)
-        self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=100)
+        self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=50)
 
         self.targets = self.tree(initial_coordinates)
-        self.circles = [Circle(t, radius=0.1, facecolor='r', alpha=0.5) for t in self.targets]
+        self.circles = [Circle(t, radius=0.1, facecolor='r', alpha=0.5, animated=True) for t in self.targets]
         for c in self.circles:
             self.ax.add_patch(c)
 
-        self.line = Line2D(*zip(*self.tree.lineplot_xys()), marker='o', markerfacecolor='b',animated=True)
+        self.line = Line2D(*zip(*self.tree.lineplot_xys()), marker='o', markerfacecolor='b', animated=True)
         self.ax.add_line(self.line)
 
         self._ind = None # the target being dragged
@@ -49,7 +50,6 @@ class InteractiveIK(object):
         canvas.mpl_connect('motion_notify_event', self.motion_notify_callback)
 
     def line_changed(self, line):
-        # TODO circle stuff here?
         vis = self.line.get_visible()
         Artist.update_from(self.line, line)
         self.line.set_visible(vis)
@@ -79,7 +79,7 @@ class InteractiveIK(object):
         self.targets[self._ind] = x,y
         self.circles[self._ind].center = x,y
 
-        self.tree(self.solver(self.targets, self.tree.coordinates))
+        self.tree(self.solver(np.clip(self.targets,*self.limits), self.tree.coordinates))
         self.line.set_data(*zip(*self.tree.lineplot_xys()))
 
         self.canvas.restore_region(self.background)
@@ -116,7 +116,7 @@ def chain_example():
                 children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
             ])
 
-    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4]))
+    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4]),limits=(-4,4))
 
     ax.set_xlim((-4,4))
     ax.set_ylim((-4,4))
@@ -135,7 +135,7 @@ def tree_example():
                     ])
             ])
 
-    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4,0.]))
+    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4,0.]),limits=(-3,3))
 
     ax.set_xlim((-4,4))
     ax.set_ylim((-4,4))
