@@ -16,7 +16,7 @@ class JointTreeFKViz(ik.JointTreeFK):
         n = node.E.ndim
         origin = np.zeros(n+1)
         origin[-1] = 1
-        return [origin] + self._interleave(origin,map(node.E.apply,node.effectors)) \
+        return [origin] + self._interleave(origin,map(node.E.apply,(e for i,e in node.effectors))) \
                 + flatten1(self._interleave([origin],
                     [map(node.E.apply,self._lineplot_xys(c)) for c in node.children]))
 
@@ -33,6 +33,7 @@ class InteractiveIK(object):
 
         self.tree = JointTreeFKViz(treeroot)
         self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=30,limits=limits)
+        self.prev_coordinates = initial_coordinates
 
         self.targets = self.tree(initial_coordinates)
         self.circles = [Circle(t, radius=0.1, facecolor='r', alpha=0.5, animated=True) for t in self.targets]
@@ -80,7 +81,8 @@ class InteractiveIK(object):
         self.targets[self._ind] = x,y
         self.circles[self._ind].center = x,y
 
-        self.tree(self.solver(self.targets, self.tree.coordinates))
+        self.prev_coordinates = self.solver(self.targets, self.prev_coordinates)
+        # self.tree(self.prev_coordinates)
         self.line.set_data(*zip(*self.tree.lineplot_xys()))
 
         self.canvas.restore_region(self.background)

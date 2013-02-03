@@ -1,6 +1,6 @@
 from __future__ import division
 import numpy as np
-import abc, itertools
+import abc, itertools, hashlib
 from numpy.core.umath_tests import inner1d
 
 from util import rot2D, rot3D_YawPitchRoll, solve_psd, flatten1
@@ -84,6 +84,8 @@ class ChartedSpecialEuclideanElement(SpecialEuclideanElement):
     @abc.abstractmethod
     def tangent_basis_at_identity(self):
         pass
+    # TODO make an applying operation instead (so i can use
+    # np.tensordot(tensor,v,1) or similar
 
 # here are some concrete charts
 
@@ -164,8 +166,37 @@ class ForwardKinematics(object):
 
 ### FK chains are nice
 
+class JointChainNode(object):
+    def __init__(self,E,effectors=[]):
+        self.E = E
+        self.effectors = [np.concatenate((e,(1.,))) for e in effectors]
+
+
 class JointChainFK(ForwardKinematics):
-    pass # TODO
+    def __init__(self,jointlist):
+        self.jointlist = jointlist
+        effector_indexer = itertools.count()
+        for joint in jointlist:
+            joint.effector_indices = [effector_indexer.next() for e in joint.effectors]
+
+    def __call__(self,coordinates):
+        for joint,coord in zip(self.jointlist,coordinates):
+            joint.E.set_from_chart(coord)
+
+        alleffectors = []
+        for joint in self.jointlist[::-1]:
+            alleffectors = map(joint.E.apply, alleffectors + joint.effectors)
+
+        return np.asarray(alleffectors)[:,:-1]
+
+    def deriv(self,coordinates):
+        for joint,coord in zip(self.jointlist,coordinates):
+            joint.E.set_from_chart(coord)
+
+        alleffectors = []
+        for jointidx, joint in reversed(enumerate(self.jointlist)):
+            raise NotImplementedError # TODO
+
 
 ### FK trees are hard! or maybe this can be improved...
 
@@ -177,6 +208,9 @@ class JointTreeNode(object):
 
 class JointTreeFK(ForwardKinematics):
     # nodes are indexed by left-to-right depth-first search preorder
+
+    ### initialization stuff
+
     def __init__(self,root):
         self.root = root
         self.ndim = self.root.E.ndim
@@ -186,24 +220,34 @@ class JointTreeFK(ForwardKinematics):
         self._set_indices(root,node_idx,eff_idx)
         self.num_joints, self.num_effectors = node_idx.next(), eff_idx.next()
 
-    def __call__(self,coordinates):
-        self.coordinates = coordinates
-        self._set_coordinates(coordinates,self.root)
-        return np.asarray(self._get_effectors(self.root))[:,:-1]
-
-    def deriv(self,coordinates):
-        self._set_coordinates(coordinates,self.root)
-        J = np.zeros((self.num_effectors, self.ndim, max(self.coordinate_nums), self.num_joints))
-        for (jointidx,effidx), d in self._get_derivatives(self.root)[1]:
-            J[effidx,:,:len(d),jointidx] = np.asarray(d)[:,:-1].T
-        return J
+        self._prev_call_coord_hash = None
+        self._prev_call_result = None
 
     def _set_indices(self,node,node_indexer,effector_indexer):
         node.idx = node_indexer.next()
-        node.effector_indices = [effector_indexer.next() for e in node.effectors]
+        node.effectors = [(effector_indexer.next(), e) for e in node.effectors]
         self.coordinate_nums.append(node.E.numcoordinates)
         for c in node.children:
             self._set_indices(c,node_indexer,effector_indexer)
+
+    ### implementing the FK interface
+
+    def __call__(self,coordinates):
+        h = hashlib.sha1(coordinates).hexdigest()
+        if True: # and not self._prev_call_coord_hash == h:
+            self._prev_call_coord_hash = h
+            self._set_coordinates(coordinates,self.root)
+            self._prev_call_result = [e for i,e in self._get_effectors(self.root)]
+        return np.asarray(self._prev_call_result)[:,:-1]
+
+    def deriv(self,coordinates):
+        self(coordinates)
+        J = np.zeros((self.num_effectors, self.ndim, max(self.coordinate_nums), self.num_joints))
+        for (jointidx,effidx), d in self._get_derivatives(self.root):
+            J[effidx,:,:len(d),jointidx] = np.asarray(d)[:,:-1].T
+        return J
+
+    ### internal computation
 
     def _set_coordinates(self,coordinates,node):
         node.E.set_from_chart(coordinates[node.idx])
@@ -211,18 +255,20 @@ class JointTreeFK(ForwardKinematics):
             self._set_coordinates(coordinates,c)
 
     def _get_effectors(self,node):
-        return map(node.E.apply, node.effectors
-                + flatten1([self._get_effectors(c) for c in node.children]))
+        # this caches the localized effectors at each node so that they can
+        # be used by a subsequent deriv call
+        node.localized_effectors = [(idx,node.E.apply(e)) for idx,e in
+                itertools.chain(node.effectors,
+                    (epair for c in node.children for epair in self._get_effectors(c)))]
+        return node.localized_effectors
 
     def _get_derivatives(self,node):
-        effectors, derivs = map(flatten1,zip(*[self._get_derivatives(c) for c in node.children])) \
-                if len(node.children) > 0 else ([], [])
-        effectors = [(effidx, node.E.apply(eff)) for effidx, eff in \
-                itertools.chain(effectors,zip(*(node.effector_indices,node.effectors)))]
-        derivs = [((jointidx,effidx), map(node.E.apply, deriv)) for (jointidx, effidx), deriv in derivs] \
-                  + [((node.idx,effidx), [d.apply(eff) for d in node.E.tangent_basis_at_identity()])
-                        for effidx, eff in effectors]
-        return effectors, derivs
+        return itertools.chain(
+            (((jointidx,effidx), [node.E.apply(d) for d in ds])
+                for c in node.children for ((jointidx,effidx), ds) in self._get_derivatives(c)),
+            (((node.idx,effidx), [d.apply(eff) for d in node.E.tangent_basis_at_identity()])
+                for effidx, eff in node.localized_effectors)
+                )
 
 ########
 #  IK  #
@@ -244,4 +290,4 @@ def construct_solver(s,dampening_factors,tol,maxiter,limits=(-np.inf,np.inf)):
     return solver
 
 # TODO test 3D
-
+# TODO try generators/itertools
