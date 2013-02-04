@@ -6,8 +6,8 @@ from matplotlib.artist import Artist
 from matplotlib.patches import Circle
 
 import ik
-from util import flatten1
 
+# TODO clean this up a bit
 class JointTreeFKViz(ik.JointTreeFK):
     def lineplot_xys(self):
         return np.asarray(self._lineplot_xys(self.root))[:,:-1]
@@ -17,11 +17,14 @@ class JointTreeFKViz(ik.JointTreeFK):
         origin = np.zeros(n+1)
         origin[-1] = 1
         return [origin] + self._interleave(origin,map(node.E.apply,(e for i,e in node.effectors))) \
-                + flatten1(self._interleave([origin],
+                + self._flatten1(self._interleave([origin],
                     [map(node.E.apply,self._lineplot_xys(c)) for c in node.children]))
 
     def _interleave(self,item,lst):
         return [v for l in lst for v in (l,item)]
+
+    def _flatten1(self,lol):
+        return reduce(list.__iadd__,lol,[])
 
 
 class InteractiveIK(object):
@@ -104,11 +107,9 @@ class InteractiveIK(object):
 
         return ind
 
-
 ##############
 #  examples  #
 ##############
-
 
 def chain_example():
     fig = plt.figure()

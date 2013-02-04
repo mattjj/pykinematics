@@ -3,7 +3,7 @@ import numpy as np
 import abc, itertools, hashlib
 from numpy.core.umath_tests import inner1d
 
-from util import rot2D, rot3D_YawPitchRoll, solve_psd, flatten1
+from util import rot2D, rot3D_YawPitchRoll, solve_psd2
 
 #######################
 #  Geometric Algebra  #
@@ -77,15 +77,11 @@ class ChartedSpecialEuclideanElement(SpecialEuclideanElement):
     'models an element of E+(n) along with a chart (for some submanifold)'
     __metaclass__ = abc.ABCMeta
 
+    # also requires a deriv_tensor_at_identity member
+
     @abc.abstractmethod
     def set_from_chart(self,coordinates):
         pass
-
-    @abc.abstractmethod
-    def tangent_basis_at_identity(self):
-        pass
-    # TODO make an applying operation instead (so i can use
-    # np.tensordot(tensor,v,1) or similar
 
 # here are some concrete charts
 
@@ -98,9 +94,9 @@ class RotorJoint2D(ChartedSpecialEuclideanElement):
     numcoordinates = 1
     ndim = 2
 
-    tangent_basis = [SpecialEuclideanLieAlgebraElement(
+    deriv_tensor_at_identity = np.array([SpecialEuclideanLieAlgebraElement(
         skew_symmetric_matrix=np.array(( (0.,-1.), (1.,0.) )),
-        inftranslation=np.zeros(2))]
+        inftranslation=np.zeros(2))._mat])
 
     def __init__(self,length,theta=None):
         self.length = length
@@ -109,9 +105,6 @@ class RotorJoint2D(ChartedSpecialEuclideanElement):
 
     def set_from_chart(self,theta):
         return self.set_matrices(rotation_matrix=rot2D(theta),translation=np.array((self.length,0)))
-
-    def tangent_basis_at_identity(self):
-        return self.tangent_basis
 
 
 # TODO test
@@ -124,8 +117,8 @@ class RotorJoint3DYawPitchRoll(ChartedSpecialEuclideanElement):
     numcoordinates = 3
     ndim = 3
 
-    tangent_basis = [SpecialEuclideanLieAlgebraElement(skew_symmetric_matrix=m,
-                                      inftranslation=np.zeros(3)) \
+    deriv_tensor_at_identity = np.array([SpecialEuclideanLieAlgebraElement(skew_symmetric_matrix=m,
+                                      inftranslation=np.zeros(3))._mat \
                         for m in \
                             [np.array(( ( 0.,-1., 0.),
                                         ( 1., 0., 0.),
@@ -135,7 +128,7 @@ class RotorJoint3DYawPitchRoll(ChartedSpecialEuclideanElement):
                                         ( 1., 0., 0.) )),
                             np.array((  ( 0., 0., 0.),
                                         ( 0., 0.,-1.),
-                                        ( 0., 1., 0.) ))]]
+                                        ( 0., 1., 0.) ))]])
 
     def __init__(self,length,theta_x=None,theta_y=None,theta_z=None):
         self.length = length
@@ -145,9 +138,6 @@ class RotorJoint3DYawPitchRoll(ChartedSpecialEuclideanElement):
     def set_from_chart(self,theta_x,theta_y,theta_z):
         return self.set_matrices(rotation_matrix=rot3D_YawPitchRoll(theta_x,theta_y,theta_z),
                                  translation=np.array((self.length,0,0)))
-
-    def tangent_basis_at_identity(self):
-        return self.tangent_basis
 
 ########
 #  FK  #
@@ -164,40 +154,6 @@ class ForwardKinematics(object):
     def deriv(self,coordinates):
         pass
 
-### FK chains are nice
-
-class JointChainNode(object):
-    def __init__(self,E,effectors=[]):
-        self.E = E
-        self.effectors = [np.concatenate((e,(1.,))) for e in effectors]
-
-
-class JointChainFK(ForwardKinematics):
-    def __init__(self,jointlist):
-        self.jointlist = jointlist
-        effector_indexer = itertools.count()
-        for joint in jointlist:
-            joint.effector_indices = [effector_indexer.next() for e in joint.effectors]
-
-    def __call__(self,coordinates):
-        for joint,coord in zip(self.jointlist,coordinates):
-            joint.E.set_from_chart(coord)
-
-        alleffectors = []
-        for joint in self.jointlist[::-1]:
-            alleffectors = map(joint.E.apply, alleffectors + joint.effectors)
-
-        return np.asarray(alleffectors)[:,:-1]
-
-    def deriv(self,coordinates):
-        for joint,coord in zip(self.jointlist,coordinates):
-            joint.E.set_from_chart(coord)
-
-        alleffectors = []
-        for jointidx, joint in reversed(enumerate(self.jointlist)):
-            raise NotImplementedError # TODO
-
-
 ### FK trees are hard! or maybe this can be improved...
 
 class JointTreeNode(object):
@@ -207,7 +163,6 @@ class JointTreeNode(object):
         self.children = children
 
 class JointTreeFK(ForwardKinematics):
-    # nodes are indexed by left-to-right depth-first search preorder
 
     ### initialization stuff
 
@@ -224,6 +179,7 @@ class JointTreeFK(ForwardKinematics):
         self._prev_call_result = None
 
     def _set_indices(self,node,node_indexer,effector_indexer):
+        # nodes are indexed by left-to-right depth-first search preorder
         node.idx = node_indexer.next()
         node.effectors = [(effector_indexer.next(), e) for e in node.effectors]
         self.coordinate_nums.append(node.E.numcoordinates)
@@ -234,7 +190,7 @@ class JointTreeFK(ForwardKinematics):
 
     def __call__(self,coordinates):
         h = hashlib.sha1(coordinates).hexdigest()
-        if True: # and not self._prev_call_coord_hash == h:
+        if not self._prev_call_coord_hash == h:
             self._prev_call_coord_hash = h
             self._set_coordinates(coordinates,self.root)
             self._prev_call_result = [e for i,e in self._get_effectors(self.root)]
@@ -244,7 +200,7 @@ class JointTreeFK(ForwardKinematics):
         self(coordinates)
         J = np.zeros((self.num_effectors, self.ndim, max(self.coordinate_nums), self.num_joints))
         for (jointidx,effidx), d in self._get_derivatives(self.root):
-            J[effidx,:,:len(d),jointidx] = np.asarray(d)[:,:-1].T
+            J[effidx,:,:len(d),jointidx] = d[:-1,:]
         return J
 
     ### internal computation
@@ -255,20 +211,18 @@ class JointTreeFK(ForwardKinematics):
             self._set_coordinates(coordinates,c)
 
     def _get_effectors(self,node):
-        # this caches the localized effectors at each node so that they can
-        # be used by a subsequent deriv call
         node.localized_effectors = [(idx,node.E.apply(e)) for idx,e in
-                itertools.chain(node.effectors,
+                itertools.chain(
+                    node.effectors,
                     (epair for c in node.children for epair in self._get_effectors(c)))]
         return node.localized_effectors
 
     def _get_derivatives(self,node):
         return itertools.chain(
-            (((jointidx,effidx), [node.E.apply(d) for d in ds])
-                for c in node.children for ((jointidx,effidx), ds) in self._get_derivatives(c)),
-            (((node.idx,effidx), [d.apply(eff) for d in node.E.tangent_basis_at_identity()])
-                for effidx, eff in node.localized_effectors)
-                )
+                (((jointidx,effidx), node.E.apply(ds))
+                    for c in node.children for (jointidx,effidx), ds in self._get_derivatives(c)),
+                (((node.idx,effidx), np.tensordot(node.E.deriv_tensor_at_identity,eff,1).T)
+                    for effidx, eff in node.localized_effectors))
 
 ########
 #  IK  #
@@ -282,7 +236,7 @@ def construct_solver(s,dampening_factors,tol,maxiter,limits=(-np.inf,np.inf)):
             J = s.deriv(theta).reshape((-1,theta.size))
             JJT = J.dot(J.T)
             JJT.flat[::JJT.shape[0]+1] += dampening_factors
-            theta.flat += J.T.dot(solve_psd(JJT,e.ravel(),overwrite_b=True))
+            theta.flat += J.T.dot(solve_psd2(JJT,e.ravel(),overwrite_b=True))
             e = np.clip(t-s(theta),*limits,out=e)
             if inner1d(e,e).max() < tol**2:
                 return theta
@@ -290,4 +244,4 @@ def construct_solver(s,dampening_factors,tol,maxiter,limits=(-np.inf,np.inf)):
     return solver
 
 # TODO test 3D
-# TODO try generators/itertools
+# TODO benchmarking code
