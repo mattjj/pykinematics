@@ -229,9 +229,9 @@ class JointTreeFK(ForwardKinematics):
                 )
 
 
-class HomogeneousJointTreeFK(JointTreeFK):
+class BigchartJointTreeFK(JointTreeFK):
     def __init__(self,root,bigchart,allmaps):
-        super(HomogeneousJointTreeFK,self).__init__(root)
+        super(BigchartJointTreeFK,self).__init__(root)
         self.bigchart = bigchart
         self.allmaps = allmaps
         for i,n in enumerate(self._tree_dfs(root)):

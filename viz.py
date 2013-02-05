@@ -7,7 +7,6 @@ from matplotlib.patches import Circle
 
 import ik
 
-# TODO clean this up a bit
 class JointTreeFKViz(ik.JointTreeFK):
     def lineplot_xys(self):
         return np.asarray(self._lineplot_xys(self.root))[:,:-1]
@@ -27,7 +26,7 @@ class JointTreeFKViz(ik.JointTreeFK):
         return reduce(list.__iadd__,lol,[])
 
 
-class HomogeneousJointTreeFKViz(JointTreeFKViz,ik.HomogeneousJointTreeFK):
+class BigchartJointTreeFKViz(JointTreeFKViz,ik.BigchartJointTreeFK):
     pass
 
 class InteractiveIK(object):
@@ -154,7 +153,7 @@ def tree_example():
         out[:,0,-1] = c*lengths
         out[:,1,-1] = s*lengths
 
-    v = InteractiveIK(fig,ax,HomogeneousJointTreeFKViz(treeroot,bigchart,temp),
+    v = InteractiveIK(fig,ax,BigchartJointTreeFKViz(treeroot,bigchart,temp),
             np.array([np.pi/4,np.pi/4,np.pi/4,0.]),limits=(-2,2))
 
     ax.set_xlim((-4,4))
