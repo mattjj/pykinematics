@@ -1,9 +1,9 @@
 from __future__ import division
 import numpy as np
-import abc, itertools, hashlib
+import abc, itertools, hashlib, operator
 from numpy.core.umath_tests import inner1d
 
-from util import rot2D, rot3D_YawPitchRoll, solve_psd2
+from util import rot3D_YawPitchRoll, solve_psd2
 
 #######################
 #  Geometric Algebra  #
@@ -99,13 +99,15 @@ class RotorJoint2D(ChartedSpecialEuclideanElement):
         inftranslation=np.zeros(2))._mat])
 
     def __init__(self,length,theta=None):
-        self.length = length
+        self.l = length
         if theta is not None:
             self.set_from_chart(theta)
 
     def set_from_chart(self,theta):
-        return self.set_matrices(rotation_matrix=rot2D(theta),translation=np.array((self.length,0)))
-
+        c, s = np.cos(theta), np.sin(theta)
+        self._mat = np.array(( (c,-s, c*self.l),
+                               (s, c, s*self.l),
+                               (0, 0, 1       ), ))
 
 # TODO test
 class RotorJoint3DYawPitchRoll(ChartedSpecialEuclideanElement):
@@ -177,6 +179,7 @@ class JointTreeFK(ForwardKinematics):
 
         self._prev_call_coord_hash = None
         self._prev_call_result = None
+        self._J = np.zeros((self.num_effectors, self.ndim, max(self.coordinate_nums), self.num_joints))
 
     def _set_indices(self,node,node_indexer,effector_indexer):
         # nodes are indexed by left-to-right depth-first search preorder
@@ -190,7 +193,7 @@ class JointTreeFK(ForwardKinematics):
 
     def __call__(self,coordinates):
         h = hashlib.sha1(coordinates).hexdigest()
-        if not self._prev_call_coord_hash == h:
+        if not (self._prev_call_coord_hash == h):
             self._prev_call_coord_hash = h
             self._set_coordinates(coordinates,self.root)
             self._prev_call_result = [e for i,e in self._get_effectors(self.root)]
@@ -198,10 +201,9 @@ class JointTreeFK(ForwardKinematics):
 
     def deriv(self,coordinates):
         self(coordinates)
-        J = np.zeros((self.num_effectors, self.ndim, max(self.coordinate_nums), self.num_joints))
-        for (jointidx,effidx), d in self._get_derivatives(self.root):
-            J[effidx,:,:len(d),jointidx] = d[:-1,:]
-        return J
+        for (effidx,jointidx), d in sorted(self._get_derivatives(self.root),key=operator.itemgetter(0)):
+            self._J[effidx,:,:d.shape[0],jointidx] = d[:-1,:]
+        return self._J
 
     ### internal computation
 
@@ -219,10 +221,29 @@ class JointTreeFK(ForwardKinematics):
 
     def _get_derivatives(self,node):
         return itertools.chain(
-                (((jointidx,effidx), node.E.apply(ds))
-                    for c in node.children for (jointidx,effidx), ds in self._get_derivatives(c)),
-                (((node.idx,effidx), np.tensordot(node.E.deriv_tensor_at_identity,eff,1).T)
-                    for effidx, eff in node.localized_effectors))
+                (((effidx,jointidx), node.E.apply(ds))
+                    for c in node.children for (effidx,jointidx), ds in self._get_derivatives(c)),
+                (((effidx,node.idx), np.tensordot(node.E.deriv_tensor_at_identity,eff,1).T)
+                    for effidx, eff in node.localized_effectors),
+                )
+
+
+class HomogeneousJointTreeFK(JointTreeFK):
+    def __init__(self,root,bigchart,allmaps):
+        super(HomogeneousJointTreeFK,self).__init__(root)
+        self.bigchart = bigchart
+        self.allmaps = allmaps
+        for i,n in enumerate(self._tree_dfs(root)):
+            n.E._mat = allmaps[i]
+
+    def _tree_dfs(self,node):
+        yield node
+        for c in node.children:
+            for node in self._tree_dfs(c):
+                yield node
+
+    def _set_coordinates(self,coordinates,_):
+        self.bigchart(coordinates,self.allmaps)
 
 ########
 #  IK  #

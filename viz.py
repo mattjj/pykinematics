@@ -27,14 +27,17 @@ class JointTreeFKViz(ik.JointTreeFK):
         return reduce(list.__iadd__,lol,[])
 
 
+class HomogeneousJointTreeFKViz(JointTreeFKViz,ik.HomogeneousJointTreeFK):
+    pass
+
 class InteractiveIK(object):
     epsilon = 5. # pixel units
 
-    def __init__(self, fig, ax, treeroot, initial_coordinates, limits=(-np.inf,np.inf)):
+    def __init__(self, fig, ax, tree, initial_coordinates, limits=(-np.inf,np.inf)):
         self.ax = ax
         self.canvas = canvas = fig.canvas
 
-        self.tree = JointTreeFKViz(treeroot)
+        self.tree = tree
         self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=30,limits=limits)
         self.prev_coordinates = initial_coordinates
 
@@ -120,7 +123,7 @@ def chain_example():
                 children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
             ])
 
-    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4]),limits=(-2,2))
+    v = InteractiveIK(fig,ax,JointTreeFKViz(treeroot),np.array([np.pi/4,np.pi/4,np.pi/4]),limits=(-2,2))
 
     ax.set_xlim((-4,4))
     ax.set_ylim((-4,4))
@@ -139,7 +142,20 @@ def tree_example():
                     ])
             ])
 
-    v = InteractiveIK(fig,ax,treeroot,np.array([np.pi/4,np.pi/4,np.pi/4,0.]),limits=(-2,2))
+    # NOTE: hardcoded temp shape and lengths from above
+    temp = np.zeros((4,3,3))
+    temp[:,-1,-1] = 1.
+    lengths = np.array([1.5,1.,1.,1.])
+    def bigchart(thetas,out):
+        c, s = np.cos(thetas), np.sin(thetas)
+        out[:,0,0] = out[:,1,1] = c
+        out[:,0,1] = -s
+        out[:,1,0] = s
+        out[:,0,-1] = c*lengths
+        out[:,1,-1] = s*lengths
+
+    v = InteractiveIK(fig,ax,HomogeneousJointTreeFKViz(treeroot,bigchart,temp),
+            np.array([np.pi/4,np.pi/4,np.pi/4,0.]),limits=(-2,2))
 
     ax.set_xlim((-4,4))
     ax.set_ylim((-4,4))
