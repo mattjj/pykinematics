@@ -1,5 +1,6 @@
 from __future__ import division
 import numpy as np
+from numpy.lib.stride_tricks import as_strided as ast
 import scipy.linalg
 
 def rot2D(theta):
@@ -15,3 +16,7 @@ potrs, potrf = scipy.linalg.lapack.get_lapack_funcs(('potrs','potrf'),arrays=Fal
 def solve_psd2(A,b,overwrite_b=False):
     return potrs(potrf(A,lower=False,overwrite_a=True,clean=False)[0],b,lower=False,overwrite_b=overwrite_b)[0]
 
+def block_view(a,block_shape):
+    shape = (a.shape[0]/block_shape[0],a.shape[1]/block_shape[1]) + block_shape
+    strides = (a.strides[0]*block_shape[0],a.strides[1]*block_shape[1]) + a.strides
+    return ast(a,shape=shape,strides=strides)

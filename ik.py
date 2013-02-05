@@ -3,7 +3,7 @@ import numpy as np
 import abc, itertools, hashlib, operator
 from numpy.core.umath_tests import inner1d
 
-from util import rot3D_YawPitchRoll, solve_psd2
+from util import rot3D_YawPitchRoll, solve_psd2, block_view
 
 #######################
 #  Geometric Algebra  #
@@ -179,7 +179,8 @@ class JointTreeFK(ForwardKinematics):
 
         self._prev_call_coord_hash = None
         self._prev_call_result = None
-        self._J = np.zeros((self.num_effectors, self.ndim, max(self.coordinate_nums), self.num_joints))
+        self._J = np.zeros((self.num_effectors*self.ndim, max(self.coordinate_nums)*self.num_joints))
+        self._Jblocks = block_view(self._J,(self.ndim,max(self.coordinate_nums)))
 
     def _set_indices(self,node,node_indexer,effector_indexer):
         # nodes are indexed by left-to-right depth-first search preorder
@@ -202,7 +203,7 @@ class JointTreeFK(ForwardKinematics):
     def deriv(self,coordinates):
         self(coordinates)
         for (effidx,jointidx), d in sorted(self._get_derivatives(self.root),key=operator.itemgetter(0)):
-            self._J[effidx,:,:d.shape[0],jointidx] = d[:-1,:]
+            self._Jblocks[effidx,jointidx] = d[:-1,:]
         return self._J
 
     ### internal computation
@@ -253,9 +254,10 @@ def construct_solver(s,dampening_factors,tol,maxiter,limits=(-np.inf,np.inf)):
     def solver(t,theta_init):
         theta = np.array(theta_init,copy=True)
         e = np.clip(t-s(theta),*limits)
+        JJT = np.empty((theta.size,t.size))
         for itr in range(maxiter):
-            J = s.deriv(theta).reshape((-1,theta.size))
-            JJT = J.dot(J.T)
+            J = s.deriv(theta)
+            JJT = np.dot(J,J.T,out=JJT)
             JJT.flat[::JJT.shape[0]+1] += dampening_factors
             theta.flat += J.T.dot(solve_psd2(JJT,e.ravel(),overwrite_b=True))
             e = np.clip(t-s(theta),*limits,out=e)
