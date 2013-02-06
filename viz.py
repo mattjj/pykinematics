@@ -188,18 +188,26 @@ def constrained_chain_example():
                     ])
             ])
     tree = BigchartJointTreeFKViz(treeroot,bigchart,temp)
-    solver = ik.construct_solver(tree,dampening_factors=5.,
-            prior_variances=np.array([20.,1.,1.,1.,1.]),
+
+    # quadratic potentials
+    biaspotentials = np.array([0.25,0.1,0.01,0,0])
+    defaulttheta = np.zeros(5)
+    def biasfunc(theta):
+        return (defaulttheta-theta) * biaspotentials
+
+    solver = ik.construct_biased_solver(
+            tree,
+            dampening_factors=1.,
+            biasfunc=biasfunc,
             tol=1e-2,maxiter=50,
             jointmins=-np.pi/3,jointmaxes=np.pi/3,
-            errorlimits=(-1,1))
-    v = InteractiveIK(fig,ax,tree, np.array([np.pi/4,0,0,0,0]),solver)
+            errorlimits=(-2,2))
+    v = InteractiveIK(fig,ax,tree, np.array([0.,0.,0.,0.,0.]),solver)
 
     ax.set_xlim((-6,6))
     ax.set_ylim((-6,6))
 
     return v
-
 
 
 if __name__ == '__main__':
