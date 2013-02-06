@@ -167,9 +167,9 @@ def constrained_chain_example():
     ax = plt.subplot(111)
 
     # NOTE: shape and lengths match tree constructed below
-    temp = np.zeros((4,3,3))
+    temp = np.zeros((5,3,3))
     temp[:,-1,-1] = 1.
-    lengths = np.array([1.,1.,1.,1.])
+    lengths = np.array([1.,1.,1.,1.,1.])
     def bigchart(thetas,out):
         c, s = np.cos(thetas), np.sin(thetas)
         out[:,0,0] = out[:,1,1] = c
@@ -182,17 +182,21 @@ def constrained_chain_example():
             children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),
                 children=[
                     ik.JointTreeNode(E=ik.RotorJoint2D(1.),children=[
-                        ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
+                        ik.JointTreeNode(E=ik.RotorJoint2D(1.),children=[
+                            ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
+                        ])
                     ])
             ])
     tree = BigchartJointTreeFKViz(treeroot,bigchart,temp)
-    solver = ik.construct_solver(tree,dampening_factors=1.,tol=1e-2,maxiter=30,
+    solver = ik.construct_solver(tree,dampening_factors=2.,
+            prior_variances=np.array([10.,1.,1.,1.,1.]),
+            tol=1e-2,maxiter=50,
             jointmins=-np.pi/3,jointmaxes=np.pi/3,
             errorlimits=(-1,1))
-    v = InteractiveIK(fig,ax,tree, np.array([np.pi/4,0,0,0]),solver)
+    v = InteractiveIK(fig,ax,tree, np.array([np.pi/4,0,0,0,0]),solver)
 
-    ax.set_xlim((-4,4))
-    ax.set_ylim((-4,4))
+    ax.set_xlim((-6,6))
+    ax.set_ylim((-6,6))
 
     return v
 
