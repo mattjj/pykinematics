@@ -187,7 +187,7 @@ def constrained_chain_example():
             ])
     tree = BigchartJointTreeFKViz(treeroot,bigchart,temp)
     solver = ik.construct_solver(tree,dampening_factors=1.,tol=1e-2,maxiter=30,
-            jointmins=-np.pi/2,jointmaxes=np.pi/2,
+            jointmins=-np.pi/3,jointmaxes=np.pi/3,
             errorlimits=(-1,1))
     v = InteractiveIK(fig,ax,tree, np.array([np.pi/4,0,0,0]),solver)
 
