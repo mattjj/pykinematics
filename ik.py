@@ -256,19 +256,13 @@ class BigchartJointTreeFK(JointTreeFK):
 ########
 
 def construct_solver(s,dampening_factors,tol,maxiter,
-        prior_variances=None,jointmins=-np.inf,jointmaxes=np.inf,errorlimits=(-np.inf,np.inf)):
-
-    if prior_variances is None:
-        prior_variances = np.ones(s._J.shape[1])
-    else:
-        prior_variances = np.sqrt(prior_variances) # really std devs
-
+        jointmins=-np.inf,jointmaxes=np.inf,errorlimits=(-np.inf,np.inf)):
     def solver(t,theta_init):
         theta = np.array(theta_init,copy=True)
         e = np.clip(t-s(theta),*errorlimits)
         JJT = np.empty((t.size,t.size))
         for itr in range(maxiter):
-            J = s.deriv(theta) * prior_variances
+            J = s.deriv(theta)
             JJT = np.dot(J,J.T,out=JJT)
             JJT.flat[::JJT.shape[0]+1] += dampening_factors
             theta.flat += J.T.dot(solve_psd2(JJT,e.ravel(),overwrite_b=True))
@@ -277,7 +271,6 @@ def construct_solver(s,dampening_factors,tol,maxiter,
             if inner1d(e,e).max() < tol**2:
                 return theta
         return theta
-
     return solver
 
 # TODO test 3D
