@@ -202,6 +202,11 @@ class JointTreeFK(ForwardKinematics):
 
     def deriv(self,coordinates):
         self(coordinates)
+        # sorting slightly improves memory access pattern and is a tiny net
+        # performance gain. python sorts tuples lexicographically. python's
+        # heapq.merge (and heaps in general) doesn't support a key argument and
+        # sorting at the top level was slightly better than sorting at each leve
+        # of the recursion despite Timsort looking for sorted sublists
         for (effidx,jointidx), d in sorted(self._get_derivatives(self.root),key=operator.itemgetter(0)):
             self._Jblocks[effidx,jointidx] = d[:-1,:]
         return self._J
