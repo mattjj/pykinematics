@@ -255,17 +255,19 @@ class BigchartJointTreeFK(JointTreeFK):
 #  IK  #
 ########
 
-def construct_solver(s,dampening_factors,tol,maxiter,limits=(-np.inf,np.inf)):
+def construct_solver(s,dampening_factors,tol,maxiter,
+        jointmins=-np.inf,jointmaxes=np.inf,errorlimits=(-np.inf,np.inf)):
     def solver(t,theta_init):
         theta = np.array(theta_init,copy=True)
-        e = np.clip(t-s(theta),*limits)
-        JJT = np.empty((theta.size,t.size))
+        e = np.clip(t-s(theta),*errorlimits)
+        JJT = np.empty((t.size,t.size))
         for itr in range(maxiter):
             J = s.deriv(theta)
             JJT = np.dot(J,J.T,out=JJT)
             JJT.flat[::JJT.shape[0]+1] += dampening_factors
             theta.flat += J.T.dot(solve_psd2(JJT,e.ravel(),overwrite_b=True))
-            e = np.clip(t-s(theta),*limits,out=e)
+            np.clip(theta,jointmins,jointmaxes,out=theta)
+            e = np.clip(t-s(theta),*errorlimits,out=e)
             if inner1d(e,e).max() < tol**2:
                 return theta
         return theta

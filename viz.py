@@ -32,12 +32,12 @@ class BigchartJointTreeFKViz(JointTreeFKViz,ik.BigchartJointTreeFK):
 class InteractiveIK(object):
     epsilon = 5. # pixel units
 
-    def __init__(self, fig, ax, tree, initial_coordinates, limits=(-np.inf,np.inf)):
+    def __init__(self, fig, ax, tree, initial_coordinates, solver):
         self.ax = ax
         self.canvas = canvas = fig.canvas
 
         self.tree = tree
-        self.solver = ik.construct_solver(self.tree,dampening_factors=1.,tol=1e-2,maxiter=30,limits=limits)
+        self.solver = solver
         self.prev_coordinates = initial_coordinates
 
         self.targets = self.tree(initial_coordinates)
@@ -121,8 +121,9 @@ def chain_example():
             children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)],
                 children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
             ])
-
-    v = InteractiveIK(fig,ax,JointTreeFKViz(treeroot),np.array([np.pi/4,np.pi/4,np.pi/4]),limits=(-2,2))
+    tree = JointTreeFKViz(treeroot)
+    solver = ik.construct_solver(tree,dampening_factors=1.,tol=1e-2,maxiter=30,errorlimits=(-2,2))
+    v = InteractiveIK(fig,ax,tree,np.array([np.pi/4,np.pi/4,np.pi/4]),solver)
 
     ax.set_xlim((-4,4))
     ax.set_ylim((-4,4))
@@ -133,15 +134,7 @@ def tree_example():
     fig = plt.figure()
     ax = plt.subplot(111)
 
-    treeroot = ik.JointTreeNode(E=ik.RotorJoint2D(1.5),
-            children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),
-                children=[
-                    ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)]),
-                    ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])
-                    ])
-            ])
-
-    # NOTE: hardcoded temp shape and lengths from above
+    # NOTE: shape and lengths match tree constructed below
     temp = np.zeros((4,3,3))
     temp[:,-1,-1] = 1.
     lengths = np.array([1.5,1.,1.,1.])
@@ -153,14 +146,59 @@ def tree_example():
         out[:,0,-1] = c*lengths
         out[:,1,-1] = s*lengths
 
-    v = InteractiveIK(fig,ax,BigchartJointTreeFKViz(treeroot,bigchart,temp),
-            np.array([np.pi/4,np.pi/4,np.pi/4,0.]),limits=(-2,2))
+    treeroot = ik.JointTreeNode(E=ik.RotorJoint2D(1.5),
+            children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),
+                children=[
+                    ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)]),
+                    ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])
+                    ])
+            ])
+    tree = BigchartJointTreeFKViz(treeroot,bigchart,temp)
+    solver = ik.construct_solver(tree,dampening_factors=1.,tol=1e-2,maxiter=30,errorlimits=(-2,2))
+    v = InteractiveIK(fig,ax,tree, np.array([np.pi/4,np.pi/4,np.pi/4,0.]),solver)
 
     ax.set_xlim((-4,4))
     ax.set_ylim((-4,4))
 
     return v
 
+def constrained_chain_example():
+    fig = plt.figure()
+    ax = plt.subplot(111)
+
+    # NOTE: shape and lengths match tree constructed below
+    temp = np.zeros((4,3,3))
+    temp[:,-1,-1] = 1.
+    lengths = np.array([1.,1.,1.,1.])
+    def bigchart(thetas,out):
+        c, s = np.cos(thetas), np.sin(thetas)
+        out[:,0,0] = out[:,1,1] = c
+        out[:,0,1] = -s
+        out[:,1,0] = s
+        out[:,0,-1] = c*lengths
+        out[:,1,-1] = s*lengths
+
+    treeroot = ik.JointTreeNode(E=ik.RotorJoint2D(1.),
+            children=[ik.JointTreeNode(E=ik.RotorJoint2D(1.),
+                children=[
+                    ik.JointTreeNode(E=ik.RotorJoint2D(1.),children=[
+                        ik.JointTreeNode(E=ik.RotorJoint2D(1.),effectors=[np.zeros(2)])])
+                    ])
+            ])
+    tree = BigchartJointTreeFKViz(treeroot,bigchart,temp)
+    solver = ik.construct_solver(tree,dampening_factors=1.,tol=1e-2,maxiter=30,
+            jointmins=-np.pi/2,jointmaxes=np.pi/2,
+            errorlimits=(-1,1))
+    v = InteractiveIK(fig,ax,tree, np.array([np.pi/4,0,0,0]),solver)
+
+    ax.set_xlim((-4,4))
+    ax.set_ylim((-4,4))
+
+    return v
+
+
+
 if __name__ == '__main__':
-    v = tree_example()
+    v = constrained_chain_example()
     plt.show()
+
