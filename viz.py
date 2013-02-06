@@ -188,7 +188,7 @@ def constrained_chain_example():
                     ])
             ])
     tree = BigchartJointTreeFKViz(treeroot,bigchart,temp)
-    solver = ik.construct_solver(tree,dampening_factors=2.,
+    solver = ik.construct_solver(tree,dampening_factors=5.,
             prior_variances=np.array([10.,1.,1.,1.,1.]),
             tol=1e-2,maxiter=50,
             jointmins=-np.pi/3,jointmaxes=np.pi/3,
