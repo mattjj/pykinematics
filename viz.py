@@ -211,6 +211,7 @@ def constrained_chain_example():
 
 
 if __name__ == '__main__':
-    v = constrained_chain_example()
+    # v = constrained_chain_example()
+    v = tree_example()
     plt.show()
 
